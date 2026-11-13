@@ -45,7 +45,13 @@ class Exam(db.Model):
     @property
     def answers_ready(self):
         questions = [question for variant in self.variants for question in variant.questions]
-        return bool(questions) and all(question.correct_answers for question in questions)
+        # A key is required only for automatically checked test questions.
+        # Open questions are graded by a teacher and may be omitted from the
+        # answers DOCX.
+        return bool(questions) and all(
+            question.question_type != "test" or question.correct_answers
+            for question in questions
+        )
 
     @property
     def question_count(self):
@@ -165,6 +171,7 @@ def grade_for(percentage):
 
 
 def finalize_attempt(attempt):
+    """Recalculate and store the final result after automatic/manual grading."""
     score = sum(response.points_awarded for response in attempt.responses)
     maximum = sum(question.points for question in attempt.variant.questions)
     percentage = round((score / maximum * 100) if maximum else 0, 1)
@@ -173,7 +180,23 @@ def finalize_attempt(attempt):
     attempt.percentage = percentage
     attempt.grade = grade_for(percentage)
     attempt.status = "completed"
-    attempt.submitted_at = datetime.utcnow()
+    if attempt.submitted_at is None:
+        attempt.submitted_at = datetime.utcnow()
+    db.session.commit()
+
+
+def mark_attempt_waiting_review(attempt):
+    """Store a provisional total and wait for a teacher to grade open answers."""
+    score = sum(response.points_awarded for response in attempt.responses)
+    maximum = sum(question.points for question in attempt.variant.questions)
+    percentage = round((score / maximum * 100) if maximum else 0, 1)
+    attempt.score = round(score, 2)
+    attempt.max_score = round(maximum, 2)
+    attempt.percentage = percentage
+    attempt.grade = None
+    attempt.status = "waiting_review"
+    if attempt.submitted_at is None:
+        attempt.submitted_at = datetime.utcnow()
     db.session.commit()
 
 
@@ -206,9 +229,17 @@ def create_app(test_config=None):
     def save_temp_docx(upload):
         if not upload or not upload.filename:
             raise DocumentFormatError("Выберите DOCX-файл.")
-        filename = secure_filename(upload.filename)
-        if not filename.lower().endswith(".docx"):
+
+        original_name = upload.filename.strip()
+        if not original_name.lower().endswith(".docx"):
             raise DocumentFormatError("Поддерживаются только файлы .docx.")
+
+        filename = secure_filename(original_name)
+        if not filename:
+            filename = "document.docx"
+        elif not filename.lower().endswith(".docx"):
+            filename += ".docx"
+
         temp = tempfile.NamedTemporaryFile(suffix=".docx", delete=False)
         upload.save(temp.name)
         temp.close()
@@ -249,7 +280,88 @@ def create_app(test_config=None):
     def teacher_dashboard():
         exams = Exam.query.order_by(Exam.created_at.desc()).all()
         attempts = Attempt.query.order_by(Attempt.started_at.desc()).all()
-        return render_template("teacher_dashboard.html", exams=exams, attempts=attempts)
+        pending_review_count = Attempt.query.filter_by(status="waiting_review").count()
+        # Make pending work visible without requiring a change to the existing
+        # dashboard template. The review page has a link back to ?dashboard=1.
+        if pending_review_count and request.args.get("dashboard") != "1":
+            return redirect(url_for("teacher_reviews"))
+        return render_template(
+            "teacher_dashboard.html",
+            exams=exams,
+            attempts=attempts,
+            pending_review_count=pending_review_count,
+        )
+
+    @app.route("/teacher/reviews")
+    @teacher_required
+    def teacher_reviews():
+        attempts = Attempt.query.order_by(Attempt.started_at.desc()).all()
+        pending_attempts = [
+            attempt
+            for attempt in attempts
+            if attempt.status == "waiting_review"
+            and any(response.question.question_type != "test" for response in attempt.responses)
+        ]
+        reviewed_attempts = [
+            attempt
+            for attempt in attempts
+            if attempt.status == "completed"
+            and any(response.question.question_type != "test" for response in attempt.responses)
+        ][:50]
+        return render_template(
+            "teacher_reviews.html",
+            pending_attempts=pending_attempts,
+            reviewed_attempts=reviewed_attempts,
+        )
+
+    @app.route("/teacher/attempts/<int:attempt_id>/review", methods=["POST"])
+    @teacher_required
+    def review_attempt(attempt_id):
+        attempt = db.get_or_404(Attempt, attempt_id)
+        open_responses = sorted(
+            (
+                response
+                for response in attempt.responses
+                if response.question.question_type != "test"
+            ),
+            key=lambda response: response.question.number,
+        )
+        if not open_responses:
+            flash("В этой попытке нет открытых ответов.", "error")
+            return redirect(url_for("teacher_reviews"))
+
+        allowed_values = {"0": 0.0, "0.5": 0.5, "1": 1.0}
+        validated_scores = []
+        for response in open_responses:
+            raw_value = request.form.get(f"points_{response.id}")
+            if raw_value not in allowed_values:
+                flash("Для каждого открытого ответа выберите 0, 0,5 или 1 балл.", "error")
+                return redirect(url_for("teacher_reviews") + f"#attempt-{attempt.id}")
+
+            points = allowed_values[raw_value]
+            if response.timed_out and points != 0:
+                flash("Ответ с истёкшим временем можно оценить только в 0 баллов.", "error")
+                return redirect(url_for("teacher_reviews") + f"#attempt-{attempt.id}")
+            if points > response.question.points:
+                flash(
+                    f"Для вопроса №{response.question.number} нельзя поставить больше "
+                    f"{response.question.points:g} балла.",
+                    "error",
+                )
+                return redirect(url_for("teacher_reviews") + f"#attempt-{attempt.id}")
+            validated_scores.append((response, points))
+
+        for response, points in validated_scores:
+            response.points_awarded = points
+            response.is_correct = points == response.question.points
+
+        finalize_attempt(attempt)
+        flash(
+            f"Ручная проверка сохранена. Итог: {attempt.score:g} из "
+            f"{attempt.max_score:g}, {attempt.percentage:g}%, оценка {attempt.grade}.",
+            "success",
+        )
+        return redirect(url_for("teacher_reviews") + f"#attempt-{attempt.id}")
 
     @app.route("/teacher/upload/questions", methods=["POST"])
     @teacher_required
@@ -305,7 +417,11 @@ def create_app(test_config=None):
                 variant_answers = parsed.get(variant.code, {})
                 for question in variant.questions:
                     accepted = variant_answers.get(question.number)
-                    if accepted:
+                    if question.question_type != "test":
+                        # Open answers are intentionally not checked against a
+                        # text key; they are sent to the teacher for review.
+                        question.correct_json = []
+                    elif accepted:
                         question.correct_json = accepted
                         matched += 1
                     else:
@@ -318,7 +434,7 @@ def create_app(test_config=None):
                 )
             exam.answer_doc_name = original_name
             db.session.commit()
-            flash(f"Файл ответов принят. Сопоставлено ответов: {matched}.", "success")
+            flash(f"Файл ответов принят. Сопоставлено автоматических ответов: {matched}.", "success")
         except (DocumentFormatError, ValueError) as error:
             db.session.rollback()
             flash(str(error), "error")
@@ -405,7 +521,7 @@ def create_app(test_config=None):
         if not attempt:
             flash("Сначала укажите ФИО и группу.", "error")
             return redirect(url_for("index"))
-        if attempt.status == "completed":
+        if attempt.status in {"completed", "waiting_review"}:
             return redirect(url_for("student_result", attempt_id=attempt.id))
 
         answered_ids = {response.question_id for response in attempt.responses}
@@ -414,7 +530,13 @@ def create_app(test_config=None):
             None,
         )
         if question is None:
-            finalize_attempt(attempt)
+            has_open_responses = any(
+                response.question.question_type != "test" for response in attempt.responses
+            )
+            if has_open_responses:
+                mark_attempt_waiting_review(attempt)
+            else:
+                finalize_attempt(attempt)
             return redirect(url_for("student_result", attempt_id=attempt.id))
 
         timer_key = f"question_started_{attempt.id}_{question.id}"
@@ -423,7 +545,8 @@ def create_app(test_config=None):
             elapsed = max(0, time.time() - started)
             timed_out = elapsed > question.time_limit + 3
             submitted = "" if timed_out else request.form.get("answer", "").strip()
-            correct = False if timed_out else answer_is_correct(question, submitted)
+            is_test = question.question_type == "test"
+            correct = False if timed_out or not is_test else answer_is_correct(question, submitted)
             response = StudentResponse(
                 attempt=attempt,
                 question=question,
@@ -455,9 +578,15 @@ def create_app(test_config=None):
         attempt = db.get_or_404(Attempt, attempt_id)
         if session.get("attempt_id") != attempt.id and not session.get("teacher_logged_in"):
             abort(403)
-        if attempt.status != "completed":
+        if attempt.status not in {"completed", "waiting_review"}:
             return redirect(url_for("student_question"))
         responses = sorted(attempt.responses, key=lambda item: item.question.number)
+        if attempt.status == "waiting_review":
+            return render_template(
+                "student_result_waiting.html",
+                attempt=attempt,
+                responses=responses,
+            )
         return render_template("student_result.html", attempt=attempt, responses=responses)
 
     return app
