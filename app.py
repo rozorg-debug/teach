@@ -21,7 +21,8 @@ from flask import (
     url_for,
 )
 from flask_sqlalchemy import SQLAlchemy
-from sqlalchemy import UniqueConstraint
+from sqlalchemy import UniqueConstraint, text
+from sqlalchemy.exc import SQLAlchemyError
 from werkzeug.utils import secure_filename
 
 from docx_parser import DocumentFormatError, parse_answers, parse_questions
@@ -120,7 +121,13 @@ class StudentResponse(db.Model):
 
 
 def _database_url():
-    value = os.getenv("DATABASE_URL", "sqlite:///control_work.db")
+    value = os.getenv("DATABASE_URL", "").strip()
+    if not value:
+        # Локально SQLite удобен для разработки. На Render отсутствие DATABASE_URL
+        # должно быть явной ошибкой, иначе результаты попадут во временный файл.
+        if os.getenv("RENDER"):
+            raise RuntimeError("DATABASE_URL is required on Render")
+        return "sqlite:///control_work.db"
     if value.startswith("postgres://"):
         value = "postgresql+psycopg://" + value[len("postgres://") :]
     elif value.startswith("postgresql://"):
@@ -183,7 +190,7 @@ def create_app(test_config=None):
         SECRET_KEY=os.getenv("SECRET_KEY", "local-development-only-change-me"),
         SQLALCHEMY_DATABASE_URI=_database_url(),
         SQLALCHEMY_TRACK_MODIFICATIONS=False,
-        SQLALCHEMY_ENGINE_OPTIONS={"pool_pre_ping": True},
+        SQLALCHEMY_ENGINE_OPTIONS={"pool_pre_ping": True, "pool_recycle": 300},
         MAX_CONTENT_LENGTH=16 * 1024 * 1024,
         TEACHER_PASSWORD=os.getenv("TEACHER_PASSWORD", ""),
     )
@@ -218,6 +225,15 @@ def create_app(test_config=None):
     def too_large(_error):
         flash("Файл слишком большой. Максимальный размер — 16 МБ.", "error")
         return redirect(request.referrer or url_for("index"))
+
+    @app.get("/health/db")
+    def database_health():
+        try:
+            db.session.execute(text("SELECT 1"))
+        except SQLAlchemyError:
+            db.session.rollback()
+            return {"database": "unavailable", "status": "error"}, 503
+        return {"database": "connected", "status": "ok"}, 200
 
     @app.route("/")
     def index():
