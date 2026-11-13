@@ -1,0 +1,36 @@
+{% extends 'base.html' %}
+{% block title %}Начать контрольную{% endblock %}
+{% block content %}
+<section class="hero">
+  <p class="eyebrow">Режим студента</p>
+  <h1>Начать контрольную работу</h1>
+  <p>Введите ФИО и группу. После старта система случайно назначит один вариант.</p>
+</section>
+
+{% if active_exams %}
+<form class="card form-grid" method="post" action="{{ url_for('student_start') }}">
+  <label>ФИО студента
+    <input name="student_name" maxlength="200" autocomplete="name" placeholder="Иванов Иван Иванович" required>
+  </label>
+  <label>Группа
+    <input name="group_name" maxlength="100" placeholder="ИС-21" required>
+  </label>
+  <label class="full">Контрольная работа
+    <select name="exam_id" required>
+      {% for exam in active_exams %}
+        <option value="{{ exam.id }}">{{ exam.title }}</option>
+      {% endfor %}
+    </select>
+  </label>
+  <div class="full notice">
+    Тестовый вопрос: 40 секунд. Открытый вопрос: 120 секунд. После перехода назад вернуться нельзя.
+  </div>
+  <button class="primary full" type="submit">Получить вариант и начать</button>
+</form>
+{% else %}
+<div class="card empty-state">
+  <h2>Пока нет опубликованных работ</h2>
+  <p>Преподавателю нужно загрузить вопросы, ответы и опубликовать контрольную.</p>
+</div>
+{% endif %}
+{% endblock %}

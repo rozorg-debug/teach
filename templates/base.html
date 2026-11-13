@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}Контрольные работы{% endblock %}</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+  <header class="site-header">
+    <a class="brand" href="{{ url_for('index') }}">Контрольные работы</a>
+    <nav>
+      {% if session.get('teacher_logged_in') %}
+        <a href="{{ url_for('teacher_dashboard') }}">Кабинет преподавателя</a>
+        <form class="inline" method="post" action="{{ url_for('teacher_logout') }}"><button class="link-button" type="submit">Выйти</button></form>
+      {% else %}
+        <a href="{{ url_for('teacher_login') }}">Преподаватель</a>
+      {% endif %}
+    </nav>
+  </header>
+  <main class="container">
+    {% with messages = get_flashed_messages(with_categories=true) %}
+      {% for category, message in messages %}
+        <div class="alert {{ category }}">{{ message }}</div>
+      {% endfor %}
+    {% endwith %}
+    {% block content %}{% endblock %}
+  </main>
+</body>
+</html>

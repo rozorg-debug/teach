@@ -1,0 +1,53 @@
+{% extends 'base.html' %}
+{% block title %}Вопрос {{ position }} из {{ total }}{% endblock %}
+{% block content %}
+<div class="exam-shell">
+  <div class="exam-meta">
+    <div><strong>{{ attempt.student_name }}</strong><br><span>{{ attempt.group_name }} · вариант {{ attempt.variant.code }}</span></div>
+    <div class="timer" id="timer" data-seconds="{{ question.time_limit }}">{{ question.time_limit }}</div>
+  </div>
+  <div class="progress" aria-label="Выполнено {{ position - 1 }} из {{ total }}">
+    <span style="width: {{ ((position - 1) / total * 100)|round }}%"></span>
+  </div>
+
+  <form class="card question-card" id="answer-form" method="post">
+    <p class="eyebrow">Вопрос {{ position }} из {{ total }} · {{ 'тест' if question.question_type == 'test' else 'открытый ответ' }}</p>
+    <h1>{{ question.number }}. {{ question.text }}</h1>
+    {% if question.question_type == 'test' %}
+      <div class="options">
+        {% for option in question.options %}
+          <label class="option">
+            <input type="radio" name="answer" value="{{ option.key }}">
+            <span class="option-key">{{ option.key }}</span>
+            <span>{{ option.text }}</span>
+          </label>
+        {% endfor %}
+      </div>
+    {% else %}
+      <label>Ответ
+        <textarea name="answer" rows="5" maxlength="2000" autofocus placeholder="Введите ответ"></textarea>
+      </label>
+    {% endif %}
+    <button class="primary" type="submit">Ответить и продолжить</button>
+  </form>
+</div>
+<script>
+(() => {
+  const timer = document.getElementById('timer');
+  const form = document.getElementById('answer-form');
+  let remaining = Number(timer.dataset.seconds);
+  const tick = () => {
+    timer.textContent = remaining;
+    timer.classList.toggle('danger', remaining <= 10);
+    if (remaining <= 0) {
+      clearInterval(handle);
+      form.submit();
+      return;
+    }
+    remaining -= 1;
+  };
+  tick();
+  const handle = setInterval(tick, 1000);
+})();
+</script>
+{% endblock %}

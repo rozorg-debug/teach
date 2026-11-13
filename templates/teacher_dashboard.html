@@ -1,0 +1,97 @@
+{% extends 'base.html' %}
+{% block title %}Кабинет преподавателя{% endblock %}
+{% block content %}
+<section class="hero hero-row">
+  <div>
+    <p class="eyebrow">Кабинет преподавателя</p>
+    <h1>Контрольные и результаты</h1>
+  </div>
+  <a class="button secondary" href="{{ url_for('export_results') }}">Скачать CSV</a>
+</section>
+
+<section class="card">
+  <h2>1. Загрузить документ с вопросами</h2>
+  <p class="muted">Создаёт новую контрольную. Ответы загружаются отдельно после распознавания вопросов.</p>
+  <form class="form-grid" method="post" action="{{ url_for('upload_questions') }}" enctype="multipart/form-data">
+    <label>Название
+      <input name="title" maxlength="200" placeholder="Контрольная работа №1" required>
+    </label>
+    <label>Вопросы DOCX
+      <input type="file" name="questions_file" accept=".docx" required>
+    </label>
+    <button class="primary full" type="submit">Загрузить вопросы</button>
+  </form>
+</section>
+
+<section>
+  <h2>2. Добавить ответы и опубликовать</h2>
+  {% if exams %}
+    <div class="exam-list">
+    {% for exam in exams %}
+      <article class="card exam-card">
+        <div>
+          <h3>{{ exam.title }}</h3>
+          <p class="muted">{{ exam.variants|length }} вариант(ов) · {{ exam.question_count }} вопрос(ов)</p>
+          <p class="small">Вопросы: {{ exam.question_doc_name }}<br>Ответы: {{ exam.answer_doc_name or 'не загружены' }}</p>
+        </div>
+        <div class="exam-actions">
+          <form method="post" action="{{ url_for('upload_answers', exam_id=exam.id) }}" enctype="multipart/form-data">
+            <input type="file" name="answers_file" accept=".docx" required>
+            <button class="secondary" type="submit">Загрузить ответы</button>
+          </form>
+          <form method="post" action="{{ url_for('toggle_exam', exam_id=exam.id) }}">
+            <button class="{{ 'danger-button' if exam.active else 'primary' }}" type="submit" {% if not exam.answers_ready and not exam.active %}disabled{% endif %}>
+              {{ 'Снять с публикации' if exam.active else 'Опубликовать' }}
+            </button>
+          </form>
+          <span class="badge {{ 'live' if exam.active else '' }}">{{ 'Опубликована' if exam.active else ('Готова' if exam.answers_ready else 'Нужны ответы') }}</span>
+        </div>
+      </article>
+    {% endfor %}
+    </div>
+  {% else %}
+    <div class="card empty-state">Сначала загрузите DOCX с вопросами.</div>
+  {% endif %}
+</section>
+
+<section class="results-section">
+  <div class="section-heading"><h2>Результаты студентов</h2><span>{{ attempts|length }} записей</span></div>
+  <div class="table-wrap card">
+    <table>
+      <thead><tr><th>ФИО</th><th>Группа</th><th>Контрольная</th><th>Вариант</th><th>Баллы</th><th>%</th><th>Оценка</th><th>Дата/время UTC</th><th></th></tr></thead>
+      <tbody>
+      {% for attempt in attempts %}
+        <tr>
+          <td><strong>{{ attempt.student_name }}</strong></td>
+          <td>{{ attempt.group_name }}</td>
+          <td>{{ attempt.exam.title }}</td>
+          <td>{{ attempt.variant.code }}</td>
+          <td>{{ attempt.score|round(1) }} / {{ attempt.max_score|round(1) }}</td>
+          <td>{{ attempt.percentage|round(1) }}%</td>
+          <td><span class="grade">{{ attempt.grade or '—' }}</span></td>
+          <td>{{ (attempt.submitted_at or attempt.started_at).strftime('%d.%m.%Y %H:%M') }}</td>
+          <td>{% if attempt.status == 'completed' %}<a href="{{ url_for('student_result', attempt_id=attempt.id) }}">Подробнее</a>{% else %}<span class="muted">В процессе</span>{% endif %}</td>
+        </tr>
+      {% else %}
+        <tr><td colspan="9" class="empty-state">Результатов пока нет.</td></tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<section class="card format-help">
+  <h2>Формат DOCX</h2>
+  <div class="two-col">
+    <div><h3>Вопросы</h3><pre>ВАРИАНТ 1
+1. [ТЕСТ] Столица Франции?
+A) Париж
+B) Лондон
+C) Рим
+2. [ОТКРЫТЫЙ] Сколько будет 2 + 2?</pre></div>
+    <div><h3>Ответы</h3><pre>ВАРИАНТ 1
+1. A
+2. 4 | четыре</pre><p class="small">Символ <code>|</code> разделяет несколько допустимых ответов.</p></div>
+  </div>
+</section>
+{% endblock %}

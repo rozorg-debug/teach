@@ -1,0 +1,27 @@
+{% extends 'base.html' %}
+{% block title %}Результат{% endblock %}
+{% block content %}
+<section class="result-hero">
+  <p class="eyebrow">Работа завершена</p>
+  <h1>{{ attempt.student_name }}</h1>
+  <p>{{ attempt.group_name }} · {{ attempt.exam.title }} · вариант {{ attempt.variant.code }}</p>
+  <div class="score-grid">
+    <div><strong>{{ attempt.score|round(1) }} / {{ attempt.max_score|round(1) }}</strong><span>баллы</span></div>
+    <div><strong>{{ attempt.percentage|round(1) }}%</strong><span>результат</span></div>
+    <div><strong>{{ attempt.grade }}</strong><span>оценка</span></div>
+  </div>
+</section>
+
+<div class="card">
+  <h2>Ответы</h2>
+  <div class="response-list">
+    {% for response in responses %}
+      <div class="response-row">
+        <span class="status-dot {{ 'ok' if response.is_correct else 'bad' }}">{{ '✓' if response.is_correct else '×' }}</span>
+        <div><strong>Вопрос {{ response.question.number }}</strong><br><span>{{ 'Время истекло' if response.timed_out else (response.answer_text or 'Нет ответа') }}</span></div>
+        <strong>{{ response.points_awarded|round(1) }} / {{ response.question.points|round(1) }}</strong>
+      </div>
+    {% endfor %}
+  </div>
+</div>
+{% endblock %}

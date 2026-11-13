@@ -1,0 +1,22 @@
+services:
+  - type: web
+    name: control-work-site
+    runtime: python
+    buildCommand: pip install -r requirements.txt
+    startCommand: gunicorn app:app
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.12.7
+      - key: SECRET_KEY
+        generateValue: true
+      - key: TEACHER_PASSWORD
+        sync: false
+      - key: DATABASE_URL
+        fromDatabase:
+          name: control-work-db
+          property: connectionString
+
+databases:
+  - name: control-work-db
+    databaseName: control_work
+    user: control_work_user
