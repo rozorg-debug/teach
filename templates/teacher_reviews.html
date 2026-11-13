@@ -1,0 +1,128 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Проверка открытых ответов</title>
+  <style>
+    :root { color-scheme: light; --blue:#2d5bd1; --navy:#12213a; --muted:#64748b; --line:#dbe3ef; --bg:#f3f7fc; }
+    * { box-sizing: border-box; }
+    body { margin:0; background:var(--bg); color:var(--navy); font:16px/1.45 system-ui,-apple-system,"Segoe UI",sans-serif; }
+    main { width:min(1120px,calc(100% - 32px)); margin:32px auto 64px; }
+    h1 { margin:0 0 8px; font-size:clamp(30px,5vw,48px); }
+    h2 { margin:34px 0 14px; }
+    .topbar { display:flex; gap:12px; justify-content:space-between; align-items:center; flex-wrap:wrap; }
+    .muted { color:var(--muted); }
+    .button, button { display:inline-block; border:0; border-radius:10px; padding:11px 16px; background:var(--blue); color:#fff; font-weight:700; text-decoration:none; cursor:pointer; }
+    .button.secondary { background:#e7eefc; color:#1748b7; }
+    .card { margin:14px 0; padding:22px; border:1px solid var(--line); border-radius:16px; background:#fff; box-shadow:0 8px 24px rgba(17,33,58,.06); }
+    .meta { display:grid; grid-template-columns:repeat(auto-fit,minmax(180px,1fr)); gap:8px 18px; margin:12px 0 18px; }
+    .answer { margin:16px 0; padding:16px; border:1px solid var(--line); border-radius:12px; background:#fbfdff; }
+    .answer-text { margin:10px 0; padding:12px; white-space:pre-wrap; border-radius:8px; background:#eef3f9; }
+    fieldset { border:0; margin:12px 0 0; padding:0; display:flex; flex-wrap:wrap; gap:10px; }
+    label.score { position:relative; }
+    label.score input { position:absolute; opacity:0; pointer-events:none; }
+    label.score span { display:block; min-width:82px; padding:10px 14px; border:2px solid #b7c5da; border-radius:10px; text-align:center; font-weight:800; cursor:pointer; }
+    label.score input:checked + span { border-color:var(--blue); background:var(--blue); color:#fff; }
+    .flash { margin:12px 0; padding:12px 14px; border-radius:10px; background:#e9f7ee; color:#176b35; }
+    .empty { padding:20px; border:1px dashed #aebbd0; border-radius:14px; background:#fff; }
+    .reviewed { opacity:.92; }
+    .status { display:inline-block; padding:4px 9px; border-radius:999px; background:#fff1c9; color:#7a5300; font-size:14px; font-weight:700; }
+    .status.done { background:#dcf5e5; color:#176b35; }
+  </style>
+</head>
+<body>
+<main>
+  <div class="topbar">
+    <div>
+      <div class="muted">Кабинет преподавателя</div>
+      <h1>Открытые ответы</h1>
+    </div>
+    <a class="button secondary" href="{{ url_for('teacher_dashboard', dashboard=1) }}">К контрольным и результатам</a>
+  </div>
+
+  {% with messages = get_flashed_messages(with_categories=true) %}
+    {% for category, message in messages %}
+      <div class="flash">{{ message }}</div>
+    {% endfor %}
+  {% endwith %}
+
+  <h2>Ожидают проверки — {{ pending_attempts|length }}</h2>
+  {% if not pending_attempts %}
+    <div class="empty">Непроверенных открытых ответов сейчас нет.</div>
+  {% endif %}
+
+  {% for attempt in pending_attempts %}
+    <form class="card" id="attempt-{{ attempt.id }}" method="post" action="{{ url_for('review_attempt', attempt_id=attempt.id) }}">
+      <div class="topbar">
+        <strong>{{ attempt.student_name }}</strong>
+        <span class="status">Ожидает проверки</span>
+      </div>
+      <div class="meta">
+        <span><b>Группа:</b> {{ attempt.group_name }}</span>
+        <span><b>Контрольная:</b> {{ attempt.exam.title }}</span>
+        <span><b>Вариант:</b> {{ attempt.variant.code }}</span>
+        <span><b>Предварительно:</b> {{ attempt.score|round(2) }} / {{ attempt.max_score|round(2) }}</span>
+      </div>
+
+      {% for response in attempt.responses|sort(attribute='question.number') %}
+        {% if response.question.question_type != 'test' %}
+          <section class="answer">
+            <b>Вопрос {{ response.question.number }}.</b> {{ response.question.text }}
+            <div class="answer-text">{% if response.answer_text %}{{ response.answer_text }}{% else %}<span class="muted">Ответ не дан.</span>{% endif %}</div>
+            {% if response.timed_out %}
+              <div class="muted">Время истекло — автоматически 0 баллов.</div>
+              <input type="hidden" name="points_{{ response.id }}" value="0">
+            {% else %}
+              <fieldset aria-label="Оценка ответа на вопрос {{ response.question.number }}">
+                <label class="score"><input required type="radio" name="points_{{ response.id }}" value="0"><span>0 баллов</span></label>
+                <label class="score"><input required type="radio" name="points_{{ response.id }}" value="0.5"><span>0,5 балла</span></label>
+                <label class="score"><input required type="radio" name="points_{{ response.id }}" value="1"><span>1 балл</span></label>
+              </fieldset>
+            {% endif %}
+          </section>
+        {% endif %}
+      {% endfor %}
+      <button type="submit">Сохранить и пересчитать итог</button>
+    </form>
+  {% endfor %}
+
+  <h2>Последние проверенные</h2>
+  {% if not reviewed_attempts %}
+    <div class="empty">Проверенных открытых ответов пока нет.</div>
+  {% endif %}
+
+  {% for attempt in reviewed_attempts %}
+    <form class="card reviewed" id="attempt-{{ attempt.id }}" method="post" action="{{ url_for('review_attempt', attempt_id=attempt.id) }}">
+      <div class="topbar">
+        <strong>{{ attempt.student_name }} — {{ attempt.exam.title }}</strong>
+        <span class="status done">Проверено: {{ attempt.score|round(2) }} / {{ attempt.max_score|round(2) }}, {{ attempt.percentage }}%, оценка {{ attempt.grade }}</span>
+      </div>
+      <div class="meta">
+        <span><b>Группа:</b> {{ attempt.group_name }}</span>
+        <span><b>Вариант:</b> {{ attempt.variant.code }}</span>
+      </div>
+      {% for response in attempt.responses|sort(attribute='question.number') %}
+        {% if response.question.question_type != 'test' %}
+          <section class="answer">
+            <b>Вопрос {{ response.question.number }}.</b> {{ response.question.text }}
+            <div class="answer-text">{% if response.answer_text %}{{ response.answer_text }}{% else %}<span class="muted">Ответ не дан.</span>{% endif %}</div>
+            {% if response.timed_out %}
+              <input type="hidden" name="points_{{ response.id }}" value="0">
+              <span class="muted">Время истекло — 0 баллов.</span>
+            {% else %}
+              <fieldset aria-label="Оценка ответа на вопрос {{ response.question.number }}">
+                <label class="score"><input required type="radio" name="points_{{ response.id }}" value="0" {% if response.points_awarded == 0 %}checked{% endif %}><span>0 баллов</span></label>
+                <label class="score"><input required type="radio" name="points_{{ response.id }}" value="0.5" {% if response.points_awarded == 0.5 %}checked{% endif %}><span>0,5 балла</span></label>
+                <label class="score"><input required type="radio" name="points_{{ response.id }}" value="1" {% if response.points_awarded == 1 %}checked{% endif %}><span>1 балл</span></label>
+              </fieldset>
+            {% endif %}
+          </section>
+        {% endif %}
+      {% endfor %}
+      <button type="submit">Изменить оценку и пересчитать</button>
+    </form>
+  {% endfor %}
+</main>
+</body>
+</html>

@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta http-equiv="refresh" content="30">
+  <title>Ответ ожидает проверки</title>
+  <style>
+    :root { color-scheme:light; --blue:#2d5bd1; --navy:#12213a; --muted:#64748b; --line:#dbe3ef; --bg:#f3f7fc; }
+    * { box-sizing:border-box; }
+    body { margin:0; background:var(--bg); color:var(--navy); font:16px/1.5 system-ui,-apple-system,"Segoe UI",sans-serif; }
+    main { width:min(820px,calc(100% - 32px)); margin:48px auto; }
+    .card { padding:28px; border:1px solid var(--line); border-radius:18px; background:#fff; box-shadow:0 10px 30px rgba(17,33,58,.08); }
+    h1 { margin:0 0 10px; font-size:clamp(30px,6vw,48px); }
+    .notice { margin:22px 0; padding:16px; border-radius:12px; background:#fff4cc; color:#6f5100; font-weight:700; }
+    .result { display:grid; grid-template-columns:repeat(auto-fit,minmax(160px,1fr)); gap:12px; margin:20px 0; }
+    .metric { padding:16px; border:1px solid var(--line); border-radius:12px; }
+    .metric b { display:block; font-size:26px; }
+    .muted { color:var(--muted); }
+    a { display:inline-block; margin-top:12px; padding:11px 16px; border-radius:10px; background:var(--blue); color:#fff; font-weight:700; text-decoration:none; }
+  </style>
+</head>
+<body>
+<main>
+  <section class="card">
+    <div class="muted">{{ attempt.exam.title }} · вариант {{ attempt.variant.code }}</div>
+    <h1>Ответ принят</h1>
+    <p>{{ attempt.student_name }}, тестовые вопросы уже проверены автоматически.</p>
+    <div class="notice">Открытый ответ ожидает проверки преподавателем. Окончательная оценка появится после ручной проверки.</div>
+    <div class="result">
+      <div class="metric"><span class="muted">Предварительные баллы</span><b>{{ attempt.score|round(2) }} / {{ attempt.max_score|round(2) }}</b></div>
+      <div class="metric"><span class="muted">Предварительный процент</span><b>{{ attempt.percentage }}%</b></div>
+      <div class="metric"><span class="muted">Оценка</span><b>—</b></div>
+    </div>
+    <p class="muted">Страница обновляется автоматически каждые 30 секунд. После проверки здесь появится итоговый результат.</p>
+    <a href="{{ url_for('student_result', attempt_id=attempt.id) }}">Обновить сейчас</a>
+  </section>
+</main>
+</body>
+</html>
